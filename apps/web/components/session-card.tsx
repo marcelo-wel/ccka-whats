@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { ChevronDown, Copy, RefreshCw } from "lucide-react";
 
 interface Session {
   id: string;
@@ -14,50 +15,69 @@ interface Session {
   webhook_secret: string | null;
 }
 
-const statusColors: Record<string, string> = {
-  connected: "bg-green-500",
-  disconnected: "bg-gray-500",
-  connecting: "bg-yellow-500",
-  banned: "bg-red-500",
+const statusConfig: Record<string, { dot: string; label: string; text: string }> = {
+  connected:    { dot: "bg-green-500",  label: "Conectado",    text: "text-green-400" },
+  disconnected: { dot: "bg-gray-500",   label: "Desconectado", text: "text-gray-400" },
+  connecting:   { dot: "bg-yellow-400 animate-pulse", label: "Conectando", text: "text-yellow-400" },
+  banned:       { dot: "bg-red-500",    label: "Banido",       text: "text-red-400" },
 };
 
 export default function SessionCard({ session: initial }: { session: Session }) {
-  const [session, setSession] = useState(initial);
+  const [session, setSession]           = useState(initial);
   const [actionLoading, setActionLoading] = useState(false);
   const [rotateLoading, setRotateLoading] = useState(false);
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
+  const [webhookOpen, setWebhookOpen]   = useState(false);
+  const [copied, setCopied]             = useState<"url" | "secret" | null>(null);
   const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const webhookUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/whatsapp-webhook`;
 
   useEffect(() => {
     const supabase = createClient();
-
     const channel = supabase
       .channel(`session-${initial.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "wa_sessions",
-          filter: `id=eq.${initial.id}`,
-        },
-        (payload) => setSession((prev) => ({ ...prev, ...payload.new })),
-      )
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "wa_sessions", filter: `id=eq.${initial.id}` },
+        (payload) => setSession((prev) => ({ ...prev, ...payload.new })))
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
   }, [initial.id]);
+
+  // Auto-abre webhook se o secret foi recém revelado
+  useEffect(() => { if (revealedSecret) setWebhookOpen(true); }, [revealedSecret]);
+
+  // Polling: buscar QR a cada 5s quando está connecting sem QR
+  useEffect(() => {
+    if (session.status !== "connecting" || session.qr_code) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/sessions/${session.id}/qr`);
+        const data = await res.json() as { qrCode?: string | null };
+        if (data.qrCode) setSession((prev) => ({ ...prev, qr_code: data.qrCode!, status: "connecting" }));
+      } catch { /* silencioso */ }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [session.id, session.status, session.qr_code]);
+
+  useEffect(() => {
+    return () => {
+      if (revealTimer.current) clearTimeout(revealTimer.current);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    };
+  }, []);
 
   async function handleConnect() {
     if (!session.evolution_instance_name) return;
     setActionLoading(true);
-    await fetch("/api/sessions/connect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: session.id }),
-    });
+    await fetch("/api/sessions/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: session.id }) });
+    setActionLoading(false);
+  }
+
+  async function handleDisconnect() {
+    if (!session.evolution_instance_name) return;
+    setActionLoading(true);
+    await fetch("/api/sessions/disconnect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: session.id }) });
     setActionLoading(false);
   }
 
@@ -65,32 +85,18 @@ export default function SessionCard({ session: initial }: { session: Session }) 
     setActionLoading(true);
     try {
       const res = await fetch(`/api/sessions/${session.id}/qr`);
-      const data = await res.json() as { qrCode?: string | null; rawKeys?: string[]; error?: string };
-      if (data.qrCode) {
-        // QR code chegou direto — atualizar estado local imediatamente
-        setSession((prev) => ({ ...prev, qr_code: data.qrCode!, status: "connecting" }));
-      }
+      const data = await res.json() as { qrCode?: string | null };
+      if (data.qrCode) setSession((prev) => ({ ...prev, qr_code: data.qrCode!, status: "connecting" }));
     } finally {
       setActionLoading(false);
     }
-  }
-
-  async function handleDisconnect() {
-    if (!session.evolution_instance_name) return;
-    setActionLoading(true);
-    await fetch("/api/sessions/disconnect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: session.id }),
-    });
-    setActionLoading(false);
   }
 
   async function handleRotateSecret() {
     setRotateLoading(true);
     const res = await fetch(`/api/sessions/${session.id}/rotate-secret`, { method: "POST" });
     if (res.ok) {
-      const data = await res.json() as { webhook_secret: string; webhook_url: string };
+      const data = await res.json() as { webhook_secret: string };
       setSession((prev) => ({ ...prev, webhook_secret: data.webhook_secret }));
       setRevealedSecret(data.webhook_secret);
       if (revealTimer.current) clearTimeout(revealTimer.current);
@@ -99,71 +105,45 @@ export default function SessionCard({ session: initial }: { session: Session }) 
     setRotateLoading(false);
   }
 
-  useEffect(() => {
-    return () => { if (revealTimer.current) clearTimeout(revealTimer.current); };
-  }, []);
-
-  // Polling automático: buscar QR a cada 5s quando está connecting sem QR
-  useEffect(() => {
-    if (session.status !== "connecting" || session.qr_code) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/sessions/${session.id}/qr`);
-        const data = await res.json() as { qrCode?: string | null };
-        if (data.qrCode) {
-          setSession((prev) => ({ ...prev, qr_code: data.qrCode!, status: "connecting" }));
-        }
-      } catch { /* silencioso */ }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [session.id, session.status, session.qr_code]);
-
-  function copyToClipboard(text: string) {
+  function copyToClipboard(text: string, which: "url" | "secret") {
     void navigator.clipboard.writeText(text);
+    setCopied(which);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopied(null), 2000);
   }
 
-  const maskedSecret = session.webhook_secret
-    ? `${session.webhook_secret.slice(0, 8)}...`
+  const cfg = statusConfig[session.status] ?? statusConfig.disconnected;
+  const maskedSecret = session.webhook_secret ? `${session.webhook_secret.slice(0, 8)}...` : null;
+  const showQr = session.status === "connecting" && session.qr_code;
+  const qrSrc = session.qr_code
+    ? (session.qr_code.startsWith("data:") ? session.qr_code : `data:image/png;base64,${session.qr_code}`)
     : null;
 
-  const dotColor = statusColors[session.status] ?? "bg-gray-500";
-  const qrBase64 = session.qr_code;
-  const showQr = session.status === "connecting" && qrBase64;
-
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-white">
+    <div className="bg-gray-900 border border-gray-800 rounded-lg flex flex-col">
+      {/* ── Header ── */}
+      <div className="px-4 py-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white truncate">
             {session.label ?? session.phone_number}
           </p>
-          <p className="text-xs text-gray-500">{session.phone_number}</p>
+          <p className="text-xs text-gray-500 mt-0.5">{session.phone_number}</p>
           {session.evolution_instance_name && (
-            <p className="text-xs text-gray-600 mt-0.5">{session.evolution_instance_name}</p>
+            <p className="text-xs text-gray-700 mt-0.5">{session.evolution_instance_name}</p>
           )}
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            <span className={`w-2 h-2 rounded-full ${dotColor}`} />
-            <span className="text-xs text-gray-400 capitalize">{session.status}</span>
-          </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`w-2 h-2 rounded-full shrink-0 ${cfg.dot}`} />
+          <span className={`text-xs ${cfg.text}`}>{cfg.label}</span>
           {session.status === "disconnected" && session.evolution_instance_name && (
-            <button
-              onClick={handleConnect}
-              disabled={actionLoading}
-              className="text-xs px-3 py-1 bg-green-700 hover:bg-green-600 text-white rounded-md disabled:opacity-50 transition-colors"
-            >
+            <button onClick={handleConnect} disabled={actionLoading}
+              className="text-xs px-2.5 py-1 bg-green-700 hover:bg-green-600 text-white rounded-md disabled:opacity-50 transition-colors">
               Conectar
             </button>
           )}
           {session.status === "connected" && (
-            <button
-              onClick={handleDisconnect}
-              disabled={actionLoading}
-              className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded-md disabled:opacity-50 transition-colors"
-            >
+            <button onClick={handleDisconnect} disabled={actionLoading}
+              className="text-xs px-2.5 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded-md disabled:opacity-50 transition-colors">
               Desconectar
             </button>
           )}
@@ -171,96 +151,110 @@ export default function SessionCard({ session: initial }: { session: Session }) 
       </div>
 
       {session.last_seen_at && (
-        <p className="text-xs text-gray-600">
+        <p className="px-4 pb-2 text-xs text-gray-700">
           Visto: {new Date(session.last_seen_at).toLocaleString("pt-BR")}
         </p>
       )}
 
+      {/* ── QR Code ── */}
       {showQr && (
-        <div className="space-y-2">
-          <p className="text-xs text-yellow-400 animate-pulse">
-            Escaneie o QR Code com o WhatsApp
-          </p>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={qrBase64.startsWith("data:") ? qrBase64 : `data:image/png;base64,${qrBase64}`}
-            alt="QR Code WhatsApp"
-            className="w-48 h-48 rounded border border-gray-700 bg-white p-2"
-          />
-          <button
-            onClick={handleRefreshQr}
-            disabled={actionLoading}
-            className="text-xs px-3 py-1 bg-yellow-800 hover:bg-yellow-700 text-yellow-200 rounded-md disabled:opacity-50 transition-colors"
-          >
-            {actionLoading ? "Atualizando..." : "↻ Atualizar QR"}
+        <div className="px-4 pb-3 space-y-2">
+          <p className="text-xs text-yellow-400 animate-pulse">Escaneie o QR Code com o WhatsApp</p>
+          <div className="flex items-start gap-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrSrc!} alt="QR Code WhatsApp"
+              className="w-40 h-40 rounded border border-gray-700 bg-white p-2 shrink-0" />
+            <div className="pt-1 space-y-2">
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Abra o WhatsApp no celular, vá em <strong className="text-gray-300">Dispositivos conectados</strong> e escaneie o código.
+              </p>
+              <button onClick={handleRefreshQr} disabled={actionLoading}
+                className="flex items-center gap-1.5 text-xs px-2.5 py-1 bg-yellow-800 hover:bg-yellow-700 text-yellow-200 rounded-md disabled:opacity-50 transition-colors">
+                <RefreshCw size={11} />
+                {actionLoading ? "Atualizando..." : "Atualizar QR"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {session.status === "connecting" && !session.qr_code && (
+        <div className="px-4 pb-3 flex items-center gap-3">
+          <p className="text-xs text-yellow-400 animate-pulse">Aguardando QR Code...</p>
+          <button onClick={handleRefreshQr} disabled={actionLoading}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 bg-yellow-800 hover:bg-yellow-700 text-yellow-200 rounded-md disabled:opacity-50 transition-colors">
+            <RefreshCw size={11} />
+            {actionLoading ? "..." : "Buscar QR"}
           </button>
         </div>
       )}
 
-      {session.status === "connecting" && !qrBase64 && (
-        <div className="flex items-center gap-3">
-          <p className="text-xs text-yellow-400 animate-pulse">
-            Aguardando QR Code...
-          </p>
-          <button
-            onClick={handleRefreshQr}
-            disabled={actionLoading}
-            className="text-xs px-3 py-1 bg-yellow-800 hover:bg-yellow-700 text-yellow-200 rounded-md disabled:opacity-50 transition-colors"
-          >
-            {actionLoading ? "..." : "↻ Buscar QR"}
-          </button>
-        </div>
-      )}
+      {/* ── Webhook (colapsável) ── */}
+      <div className="border-t border-gray-800">
+        <button
+          onClick={() => setWebhookOpen((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:text-gray-300 hover:bg-gray-800/50 transition-colors"
+          aria-expanded={webhookOpen}
+        >
+          <span className="font-medium">Configuração do Webhook</span>
+          <ChevronDown size={14} className={`transition-transform ${webhookOpen ? "rotate-180" : ""}`} />
+        </button>
 
-      <div className="border-t border-gray-800 pt-3 space-y-2">
-        <p className="text-xs font-medium text-gray-400">Configuração do Webhook</p>
+        {webhookOpen && (
+          <div className="px-4 pb-4 space-y-3">
+            {/* URL */}
+            <div className="space-y-1">
+              <p className="text-xs text-gray-600">URL</p>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 font-mono truncate flex-1 bg-gray-800 px-2 py-1.5 rounded">
+                  {webhookUrl}
+                </span>
+                <button
+                  onClick={() => copyToClipboard(webhookUrl, "url")}
+                  className="shrink-0 flex items-center gap-1 text-xs px-2 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                  aria-label="Copiar URL do webhook"
+                >
+                  <Copy size={11} />
+                  {copied === "url" ? "Copiado!" : "Copiar"}
+                </button>
+              </div>
+            </div>
 
-        <div className="space-y-1">
-          <p className="text-xs text-gray-600">URL</p>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400 font-mono truncate flex-1 bg-gray-800 px-2 py-1 rounded">
-              {webhookUrl}
-            </span>
+            {/* Secret */}
+            {maskedSecret && (
+              <div className="space-y-1">
+                <p className="text-xs text-gray-600">Secret</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 font-mono flex-1 bg-gray-800 px-2 py-1.5 rounded">
+                    {revealedSecret ?? maskedSecret}
+                  </span>
+                  {revealedSecret && (
+                    <button
+                      onClick={() => copyToClipboard(revealedSecret, "secret")}
+                      className="shrink-0 flex items-center gap-1 text-xs px-2 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                      aria-label="Copiar secret"
+                    >
+                      <Copy size={11} />
+                      {copied === "secret" ? "Copiado!" : "Copiar"}
+                    </button>
+                  )}
+                </div>
+                {revealedSecret && (
+                  <p className="text-xs text-yellow-600">Salve agora — será ocultado em 10 segundos.</p>
+                )}
+              </div>
+            )}
+
             <button
-              onClick={() => copyToClipboard(webhookUrl)}
-              className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors shrink-0"
+              onClick={handleRotateSecret}
+              disabled={rotateLoading}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md disabled:opacity-50 transition-colors"
             >
-              Copiar
+              <RefreshCw size={11} />
+              {rotateLoading ? "Regenerando..." : "Regenerar Secret"}
             </button>
           </div>
-        </div>
-
-        {maskedSecret && (
-          <div className="space-y-1">
-            <p className="text-xs text-gray-600">Secret</p>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-400 font-mono flex-1 bg-gray-800 px-2 py-1 rounded">
-                {revealedSecret ?? maskedSecret}
-              </span>
-              {revealedSecret && (
-                <button
-                  onClick={() => copyToClipboard(revealedSecret)}
-                  className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors shrink-0"
-                >
-                  Copiar
-                </button>
-              )}
-            </div>
-            {revealedSecret && (
-              <p className="text-xs text-yellow-500">
-                Salve agora — será ocultado em breve.
-              </p>
-            )}
-          </div>
         )}
-
-        <button
-          onClick={handleRotateSecret}
-          disabled={rotateLoading}
-          className="text-xs px-3 py-1 bg-blue-700 hover:bg-blue-600 text-white rounded-md disabled:opacity-50 transition-colors"
-        >
-          {rotateLoading ? "Regenerando..." : "Regenerar Secret"}
-        </button>
       </div>
     </div>
   );

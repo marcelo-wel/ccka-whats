@@ -21,9 +21,9 @@ export default async function SessionsPage() {
     .order("created_at", { ascending: true });
 
   return (
-    <div className="p-6 max-w-2xl space-y-4">
+    <div className="p-6 space-y-6">
       <SessionsPageHeader />
-      <div className="grid grid-cols-1 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
         {(sessions ?? []).map((session) => (
           <SessionCard key={session.id} session={session} />
         ))}
