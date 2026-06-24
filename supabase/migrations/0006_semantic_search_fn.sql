@@ -12,7 +12,7 @@ returns table (
   caption text,
   chat_id uuid,
   from_me boolean,
-  timestamp timestamptz,
+  msg_timestamp timestamptz,
   similarity float
 )
 language sql
@@ -24,7 +24,7 @@ as $$
     m.caption,
     m.chat_id,
     m.from_me,
-    m.timestamp,
+    m.timestamp as msg_timestamp,
     1 - (m.embedding <=> query_embedding) as similarity
   from messages m
   where m.embedding is not null
