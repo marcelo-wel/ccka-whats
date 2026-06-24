@@ -173,17 +173,33 @@ async function handleMessagesUpsert(
       .select("id")
       .single();
 
-    // Upsert chat
+    // Upsert chat — dois passos para preservar nomes de grupo
+    // Passo 1: INSERT apenas se não existir (ignoreDuplicates protege o nome real do grupo)
+    // Para grupos: pushName é o nome do REMETENTE, não do grupo — nunca usar como nome do chat
+    await supabase
+      .from("chats")
+      .upsert(
+        {
+          tenant_id: tenantId,
+          session_id: sessionId,
+          contact_id: groupContact?.id ?? null,
+          jid: remoteJid,
+          name: isGroup ? remoteJid : (pushName ?? remoteJid),
+        },
+        { onConflict: "session_id,jid", ignoreDuplicates: true },
+      );
+
+    // Passo 2: atualizar last_message_at (e pushName para DMs) sem tocar no nome do grupo
     const { data: chat } = await supabase
       .from("chats")
-      .upsert({
-        tenant_id: tenantId,
-        session_id: sessionId,
-        contact_id: groupContact?.id ?? null,
-        jid: remoteJid,
-        name: pushName ?? remoteJid,
+      .update({
         last_message_at: new Date(messageTimestamp * 1000).toISOString(),
-      }, { onConflict: "session_id,jid" })
+        ...(groupContact?.id ? { contact_id: groupContact.id } : {}),
+        // Para DMs: manter pushName atualizado; para grupos: nunca sobrescrever
+        ...(!isGroup && pushName ? { name: pushName } : {}),
+      })
+      .eq("session_id", sessionId)
+      .eq("jid", remoteJid)
       .select("id")
       .single();
 
