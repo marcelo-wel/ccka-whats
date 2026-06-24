@@ -6,6 +6,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
+  // Middleware já garante que user existe ao chegar aqui
   if (!user) redirect("/login");
 
   const { data: operator } = await supabase
@@ -14,6 +15,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .eq("id", user.id)
     .single();
 
+  // Operator não encontrado = usuário sem perfil cadastrado
   if (!operator) redirect("/login");
 
   return (

@@ -1,13 +1,7 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import LoginForm from "./login-form";
 
-export default async function LoginPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (user) redirect("/dashboard");
-
+export default function LoginPage() {
+  // Redirect para /dashboard se autenticado é feito pelo middleware
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-950">
       <div className="w-full max-w-sm space-y-6 px-6">
