@@ -29,6 +29,9 @@ export default function SessionCard({ session: initial }: { session: Session }) 
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
   const [webhookOpen, setWebhookOpen]   = useState(false);
   const [copied, setCopied]             = useState<"url" | "secret" | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleted, setDeleted]           = useState(false);
   const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -74,6 +77,17 @@ export default function SessionCard({ session: initial }: { session: Session }) 
     setActionLoading(false);
   }
 
+  async function handleCheckStatus() {
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${session.id}/status`, { method: "POST" });
+      const data = await res.json() as { newStatus?: string };
+      if (data.newStatus) setSession((prev) => ({ ...prev, status: data.newStatus! }));
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   async function handleDisconnect() {
     if (!session.evolution_instance_name) return;
     setActionLoading(true);
@@ -105,6 +119,18 @@ export default function SessionCard({ session: initial }: { session: Session }) 
     setRotateLoading(false);
   }
 
+  async function handleDelete() {
+    if (!deleteConfirm) { setDeleteConfirm(true); return; }
+    setDeleteLoading(true);
+    const res = await fetch(`/api/sessions/${session.id}`, { method: "DELETE" });
+    if (res.ok) {
+      setDeleted(true);
+    } else {
+      setDeleteLoading(false);
+      setDeleteConfirm(false);
+    }
+  }
+
   function copyToClipboard(text: string, which: "url" | "secret") {
     void navigator.clipboard.writeText(text);
     setCopied(which);
@@ -118,6 +144,14 @@ export default function SessionCard({ session: initial }: { session: Session }) 
   const qrSrc = session.qr_code
     ? (session.qr_code.startsWith("data:") ? session.qr_code : `data:image/png;base64,${session.qr_code}`)
     : null;
+
+  if (deleted) {
+    return (
+      <div className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-6 flex items-center justify-center">
+        <p className="text-xs text-gray-600">Sessão excluída</p>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-lg flex flex-col">
@@ -255,6 +289,35 @@ export default function SessionCard({ session: initial }: { session: Session }) 
             </button>
           </div>
         )}
+      </div>
+
+      {/* ── Zona de perigo ── */}
+      <div className="border-t border-gray-800 px-4 py-3 flex items-center justify-between">
+        <p className="text-xs text-gray-700">Zona de perigo</p>
+        <div className="flex items-center gap-2">
+          {deleteConfirm && (
+            <span className="text-xs text-red-400">Tem certeza?</span>
+          )}
+          {deleteConfirm && (
+            <button
+              onClick={() => setDeleteConfirm(false)}
+              className="text-xs px-2.5 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md transition-colors"
+            >
+              Cancelar
+            </button>
+          )}
+          <button
+            onClick={handleDelete}
+            disabled={deleteLoading}
+            className={`text-xs px-2.5 py-1 rounded-md disabled:opacity-50 transition-colors ${
+              deleteConfirm
+                ? "bg-red-700 hover:bg-red-600 text-white"
+                : "bg-transparent border border-red-800 text-red-500 hover:bg-red-900/30"
+            }`}
+          >
+            {deleteLoading ? "Excluindo..." : deleteConfirm ? "Confirmar exclusão" : "Excluir sessão"}
+          </button>
+        </div>
       </div>
     </div>
   );
