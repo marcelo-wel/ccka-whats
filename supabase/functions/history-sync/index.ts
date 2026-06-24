@@ -274,7 +274,8 @@ function extractTextBody(message: Record<string, unknown> | null): string | null
   );
 }
 
-function extractCaption(message: Record<string, unknown>): string | null {
+function extractCaption(message: Record<string, unknown> | null): string | null {
+  if (!message) return null;
   for (const key of ["imageMessage", "videoMessage", "documentMessage"]) {
     const m = message[key] as Record<string, unknown> | undefined;
     if (m?.caption) return m.caption as string;
@@ -282,7 +283,8 @@ function extractCaption(message: Record<string, unknown>): string | null {
   return null;
 }
 
-function extractMimeType(message: Record<string, unknown>, type: string): string | null {
+function extractMimeType(message: Record<string, unknown> | null, type: string): string | null {
+  if (!message) return null;
   const typeKeyMap: Record<string, string> = {
     image: "imageMessage",
     audio: "audioMessage",
@@ -295,7 +297,8 @@ function extractMimeType(message: Record<string, unknown>, type: string): string
   return (m?.mimetype as string) ?? null;
 }
 
-function deriveMessageType(message: Record<string, unknown>): string {
+function deriveMessageType(message: Record<string, unknown> | null): string {
+  if (!message) return "unknown";
   const keys = ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "stickerMessage", "reactionMessage", "extendedTextMessage"];
   for (const key of keys) {
     if (message[key]) return key;
