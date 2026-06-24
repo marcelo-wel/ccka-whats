@@ -2,8 +2,9 @@
 
 import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, LinkIcon } from "lucide-react";
 
 export default function ResetPasswordPage() {
   return (
@@ -25,15 +26,18 @@ function ResetPasswordForm() {
   const [sessionReady, setSessionReady] = useState(false);
 
   useEffect(() => {
+    const errorCode = searchParams.get("error_code");
     const code = searchParams.get("code");
-    if (!code) {
-      setError("Link inválido. Solicite um novo link de redefinição.");
+
+    if (errorCode || !code) {
+      setError("expired");
       return;
     }
+
     const supabase = createClient();
     supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
       if (error) {
-        setError("Link expirado ou inválido. Solicite um novo.");
+        setError("expired");
       } else {
         setSessionReady(true);
       }
@@ -64,6 +68,36 @@ function ResetPasswordForm() {
     }
 
     router.push("/dashboard");
+  }
+
+  if (error === "expired") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-950">
+        <div className="w-full max-w-sm space-y-6 px-6 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-gray-900 border border-gray-800 flex items-center justify-center mx-auto">
+            <LinkIcon size={24} className="text-gray-500" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-xl font-semibold text-white">Link expirado</h1>
+            <p className="text-sm text-gray-400">
+              Este link de redefinição não é mais válido. Links expiram em 1 hora por segurança.
+            </p>
+          </div>
+          <Link
+            href="/forgot-password"
+            className="inline-block w-full py-2 px-4 bg-green-600 hover:bg-green-500 text-white text-sm font-medium rounded-md transition-colors"
+          >
+            Solicitar novo link
+          </Link>
+          <Link
+            href="/login"
+            className="block text-sm text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            ← Voltar para o login
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   return (
