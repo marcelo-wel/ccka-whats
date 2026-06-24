@@ -68,13 +68,22 @@ function ChatAvatar({ name, jid }: { name: string | null; jid: string }) {
   );
 }
 
+type FilterTab = "all" | "groups" | "contacts";
+
 export default function ChatList({ chats: initial, operatorRole }: ChatListProps) {
   const pathname = usePathname();
   const [chats, setChats] = useState(initial);
+  const [filter, setFilter] = useState<FilterTab>("all");
 
   useEffect(() => {
     setChats(initial);
   }, [initial]);
+
+  const filteredChats = chats.filter((c) => {
+    if (filter === "groups") return c.jid.endsWith("@g.us");
+    if (filter === "contacts") return !c.jid.endsWith("@g.us");
+    return true;
+  });
 
   useEffect(() => {
     const supabase = createClient();
@@ -122,14 +131,40 @@ export default function ChatList({ chats: initial, operatorRole }: ChatListProps
     );
   }
 
+  const tabs: { key: FilterTab; label: string }[] = [
+    { key: "all", label: "Todos" },
+    { key: "groups", label: "Grupos" },
+    { key: "contacts", label: "Contatos" },
+  ];
+
   return (
     <div className="w-72 border-r border-gray-800 flex flex-col overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-800 space-y-2">
+      <div className="px-4 pt-3 pb-2 border-b border-gray-800 space-y-2">
         <h2 className="text-sm font-medium text-gray-300">Conversas</h2>
         <SearchBar />
+        <div className="flex gap-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setFilter(tab.key)}
+              className={`flex-1 text-xs py-1 rounded-md font-medium transition-colors ${
+                filter === tab.key
+                  ? "bg-gray-700 text-white"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto" role="list" aria-label="Lista de conversas">
-        {chats.map((chat) => {
+        {filteredChats.length === 0 && (
+          <div className="flex flex-col items-center justify-center gap-2 py-12 px-6 text-center">
+            <p className="text-xs text-gray-600">Nenhuma conversa nesta categoria</p>
+          </div>
+        )}
+        {filteredChats.map((chat) => {
           const active = pathname === `/dashboard/chat/${chat.id}`;
           return (
             <Link
