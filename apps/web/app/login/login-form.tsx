@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginForm() {
@@ -40,14 +41,24 @@ export default function LoginForm() {
           required
           className="w-full px-3 py-2 rounded-md bg-gray-900 border border-gray-800 text-white placeholder-gray-500 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
         />
-        <input
-          type="password"
-          placeholder="Senha"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          className="w-full px-3 py-2 rounded-md bg-gray-900 border border-gray-800 text-white placeholder-gray-500 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
-        />
+        <div className="space-y-1">
+          <input
+            type="password"
+            placeholder="Senha"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            className="w-full px-3 py-2 rounded-md bg-gray-900 border border-gray-800 text-white placeholder-gray-500 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
+          />
+          <div className="flex justify-end">
+            <Link
+              href="/forgot-password"
+              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              Esqueceu a senha?
+            </Link>
+          </div>
+        </div>
       </div>
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
@@ -59,6 +70,15 @@ export default function LoginForm() {
       >
         {loading ? "Entrando..." : "Entrar"}
       </button>
+
+      <div className="text-center pt-1">
+        <Link
+          href="/register"
+          className="inline-block w-full py-2 px-4 border border-gray-700 hover:border-gray-500 text-gray-300 hover:text-white text-sm font-medium rounded-md transition-colors"
+        >
+          Criar conta
+        </Link>
+      </div>
     </form>
   );
 }
