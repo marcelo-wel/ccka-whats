@@ -124,11 +124,16 @@ async function processEvent(body: EvolutionEvent, session: SessionRow): Promise<
       await handleQrcodeUpdated(tenantId, sessionId, data);
       break;
     case "contacts.upsert": {
-      // Temporário: logar primeiro contato para inspecionar estrutura do payload
-      const contacts = Array.isArray(data) ? data : (data.contacts as unknown[]) ?? [];
+      // Temporário: logar contatos DM para inspecionar estrutura do payload
+      const contacts = (Array.isArray(data) ? data : (data.contacts as unknown[]) ?? []) as Record<string, unknown>[];
+      const dms = contacts.filter((c) => {
+        const jid = (c.remoteJid ?? c.id) as string ?? "";
+        return !jid.endsWith("@g.us");
+      });
       await logEvent(tenantId, sessionId, "contacts_upsert_sample", {
         total: contacts.length,
-        sample: contacts.slice(0, 3),
+        dms_total: dms.length,
+        sample: dms.slice(0, 5),
       });
       break;
     }
