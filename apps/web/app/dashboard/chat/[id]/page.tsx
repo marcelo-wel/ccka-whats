@@ -43,8 +43,8 @@ export default async function ChatPage({ params }: Props) {
   const { data: rawMessages } = await supabase
     .from("messages")
     .select(`
-      id, type, body, caption, from_me, timestamp,
-      deleted_at, edited_at, delivery_status,
+      id, message_id, type, body, caption, from_me, timestamp,
+      deleted_at, edited_at, delivery_status, reaction_to,
       media_files ( storage_path, mime_type, download_status ),
       contacts ( push_name, name )
     `)

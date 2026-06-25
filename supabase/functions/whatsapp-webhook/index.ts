@@ -223,6 +223,12 @@ async function handleMessagesUpsert(
       fetchGroupSubject(instance, remoteJid, chat.id);
     }
 
+    // Extrair ID da mensagem-alvo para reações
+    const reactionMsg = message.reactionMessage as Record<string, unknown> | undefined;
+    const reactionTo = reactionMsg
+      ? ((reactionMsg.key as Record<string, unknown>)?.id as string | undefined) ?? null
+      : null;
+
     // Upsert message — contact_id aponta para o REMETENTE (participante em grupos)
     const { data: savedMessage } = await supabase
       .from("messages")
@@ -239,6 +245,7 @@ async function handleMessagesUpsert(
         is_forwarded: isForwarded(message),
         duration_secs: extractDuration(message),
         timestamp: new Date(messageTimestamp * 1000).toISOString(),
+        reaction_to: reactionTo,
         raw_payload: data,
       }, { onConflict: "session_id,message_id" })
       .select("id")

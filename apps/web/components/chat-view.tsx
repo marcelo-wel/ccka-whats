@@ -28,6 +28,7 @@ interface MediaFile {
 
 interface Message {
   id: string;
+  message_id: string;
   type: string;
   body: string | null;
   caption: string | null;
@@ -36,6 +37,7 @@ interface Message {
   deleted_at: string | null;
   edited_at: string | null;
   delivery_status: string | null;
+  reaction_to: string | null;
   media_files: MediaFile[] | null;
   signedUrl: string | null;
   contacts: { push_name: string | null; name: string | null } | null;
@@ -204,18 +206,33 @@ export default function ChatView({ chat, messages: initial, isGroup, hasMore: in
             <span className="text-xs text-gray-500 animate-pulse">Carregando...</span>
           </div>
         )}
-        {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            isGroup={isGroup}
-            onReply={(m) => setQuotedMessage({
-              id: m.id,
-              body: m.body ?? m.caption,
-              senderName: m.from_me ? "Você" : (m.contacts?.push_name ?? m.contacts?.name ?? null),
-            })}
-          />
-        ))}
+        {(() => {
+          // Agrupar reações por mensagem-alvo: evolutionMsgId → { emoji: count }
+          const reactionMap = new Map<string, Record<string, number>>();
+          for (const msg of messages) {
+            if (msg.type === "reaction" && msg.reaction_to && msg.body) {
+              const existing = reactionMap.get(msg.reaction_to) ?? {};
+              existing[msg.body] = (existing[msg.body] ?? 0) + 1;
+              reactionMap.set(msg.reaction_to, existing);
+            }
+          }
+          // Exibir apenas mensagens não-reação
+          return messages
+            .filter((msg) => msg.type !== "reaction")
+            .map((msg) => (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                isGroup={isGroup}
+                reactions={reactionMap.get(msg.message_id) ?? null}
+                onReply={(m) => setQuotedMessage({
+                  id: m.id,
+                  body: m.body ?? m.caption,
+                  senderName: m.from_me ? "Você" : (m.contacts?.push_name ?? m.contacts?.name ?? null),
+                })}
+              />
+            ));
+        })()}
         <div ref={bottomRef} />
       </div>
 
@@ -242,20 +259,10 @@ function DeliveryTicks({ status }: { status: string | null }) {
   return null;
 }
 
-function MessageBubble({ message, isGroup, onReply }: { message: Message; isGroup: boolean; onReply: (m: Message) => void }) {
+function MessageBubble({ message, isGroup, reactions, onReply }: { message: Message; isGroup: boolean; reactions: Record<string, number> | null; onReply: (m: Message) => void }) {
   const { from_me, type, body, caption, timestamp, media_files, signedUrl, contacts, deleted_at, edited_at, delivery_status } = message;
   const media = media_files?.[0] ?? null;
   const senderName = contacts?.push_name ?? contacts?.name ?? null;
-
-  if (type === "reaction" && !deleted_at) {
-    return (
-      <div className={`flex ${from_me ? "justify-end" : "justify-start"}`}>
-        <span className="text-2xl" title={from_me ? "Você reagiu" : senderName ?? undefined}>
-          {body ?? "👍"}
-        </span>
-      </div>
-    );
-  }
 
   return (
     <div className={`flex items-end gap-1 group ${from_me ? "justify-end" : "justify-start"}`}>
@@ -300,6 +307,19 @@ function MessageBubble({ message, isGroup, onReply }: { message: Message; isGrou
           {formatTime(timestamp)}
           {from_me && !deleted_at && <DeliveryTicks status={delivery_status} />}
         </p>
+        {reactions && Object.keys(reactions).length > 0 && (
+          <div className={`flex flex-wrap gap-1 mt-1.5 ${from_me ? "justify-end" : "justify-start"}`}>
+            {Object.entries(reactions).map(([emoji, count]) => (
+              <span
+                key={emoji}
+                className="inline-flex items-center gap-0.5 bg-black/30 rounded-full px-1.5 py-0.5 text-xs"
+              >
+                <span>{emoji}</span>
+                {count > 1 && <span className="opacity-70">{count}</span>}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {!from_me && (
