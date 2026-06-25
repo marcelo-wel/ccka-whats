@@ -72,25 +72,27 @@ Deno.serve(async (req: Request) => {
     chats: chatsToSync.length,
   });
 
-  // Sincronizar cada chat
+  // Sincronizar chats em lotes paralelos (evitar timeout de 150s)
+  const CONCURRENCY = 5;
   let totalImported = 0;
-  for (const chat of chatsToSync) {
-    try {
-      const isGroupJid = chat.remoteJid.endsWith("@g.us");
-      // Para grupos: NUNCA usar pushName (é o nome do último remetente, não do grupo).
-      // Se não tiver name real do grupo, usa null — o upsert preserva o nome já existente.
-      const chatName = isGroupJid
-        ? (chat.name ?? null)
-        : (chat.pushName ?? chat.name ?? null);
-      const count = await syncChat(
-        tenantId, sessionId, instanceName,
-        chat.remoteJid,
-        chatName,
-        limit,
-      );
-      totalImported += count;
-    } catch (err) {
-      await logEvent(tenantId, sessionId, "error", { jid: chat.remoteJid }, String(err));
+
+  for (let i = 0; i < chatsToSync.length; i += CONCURRENCY) {
+    const batch = chatsToSync.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map((chat) => {
+        const isGroupJid = chat.remoteJid.endsWith("@g.us");
+        const chatName = isGroupJid
+          ? (chat.name ?? null)
+          : (chat.pushName ?? chat.name ?? null);
+        return syncChat(tenantId, sessionId, instanceName, chat.remoteJid, chatName, limit);
+      }),
+    );
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        totalImported += result.value;
+      } else {
+        await logEvent(tenantId, sessionId, "error", null, String(result.reason));
+      }
     }
   }
 
@@ -115,18 +117,49 @@ async function syncChat(
   maxMessages: number,
 ): Promise<number> {
   const isGroup = remoteJid.endsWith("@g.us");
+
+  // ── Upsert chat uma vez, fora do loop de páginas ──────────────────────────
+  const chatContact = await upsertContact(tenantId, remoteJid, null, isGroup);
+
+  await supabase.from("chats").upsert(
+    {
+      tenant_id: tenantId,
+      session_id: sessionId,
+      contact_id: chatContact?.id ?? null,
+      jid: remoteJid,
+      name: chatName ?? remoteJid,
+    },
+    { onConflict: "session_id,jid", ignoreDuplicates: true },
+  );
+
+  const { data: chat } = await supabase
+    .from("chats")
+    .update({
+      contact_id: chatContact?.id ?? null,
+      ...(chatName ? { name: chatName } : {}),
+    })
+    .eq("session_id", sessionId)
+    .eq("jid", remoteJid)
+    .select("id, name")
+    .single();
+
+  if (isGroup && chat?.id && (!chat.name || chat.name === remoteJid)) {
+    await fetchGroupSubjectAndUpdate(instanceName, remoteJid, chat.id);
+  }
+
+  // ── Paginar e importar mensagens ──────────────────────────────────────────
   let page = 1;
   let imported = 0;
+  let lastMsgBody: string | null = null;
+  let lastMsgTimestamp = 0;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
   while (imported < maxMessages) {
     const res = await fetch(`${EVOLUTION_API_URL}/chat/findMessages/${instanceName}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "apikey": EVOLUTION_API_KEY },
-      body: JSON.stringify({
-        where: { key: { remoteJid } },
-        limit: MESSAGES_PER_PAGE,
-        page,
-      }),
+      body: JSON.stringify({ where: { key: { remoteJid } }, limit: MESSAGES_PER_PAGE, page }),
     });
 
     if (!res.ok) break;
@@ -138,132 +171,129 @@ async function syncChat(
     const { records, pages } = data.messages;
     if (!records?.length) break;
 
-    // Upsert contato do chat (grupo ou pessoa)
-    const chatContact = await upsertContact(tenantId, remoteJid, null, isGroup);
-
-    // Upsert chat — dois passos para não sobrescrever nome real de grupo com pushName errado.
-    // Passo 1: INSERT se não existir (preserva nome já gravado)
-    await supabase
-      .from("chats")
-      .upsert(
-        {
-          tenant_id: tenantId,
-          session_id: sessionId,
-          contact_id: chatContact?.id ?? null,
-          jid: remoteJid,
-          name: chatName ?? remoteJid,
-        },
-        { onConflict: "session_id,jid", ignoreDuplicates: true },
-      );
-
-    // Passo 2: atualizar contact_id e, para grupos com nome real, também o nome
-    const { data: chat } = await supabase
-      .from("chats")
-      .update({
-        contact_id: chatContact?.id ?? null,
-        ...(chatName ? { name: chatName } : {}),
-      })
-      .eq("session_id", sessionId)
-      .eq("jid", remoteJid)
-      .select("id, name")
-      .single();
-
-    // Se o nome ainda é o JID bruto, buscar nome real do grupo na Evolution API
-    if (isGroup && chat?.id && (!chat.name || chat.name === remoteJid)) {
-      await fetchGroupSubjectAndUpdate(instanceName, remoteJid, chat.id);
+    // ── Upsert contatos únicos desta página em paralelo ───────────────────
+    const senderNames = new Map<string, string | null>();
+    for (const msg of records) {
+      const senderJid = isGroup && msg.key.participant ? msg.key.participant : remoteJid;
+      if (!senderNames.has(senderJid)) senderNames.set(senderJid, msg.pushName ?? null);
+    }
+    const contactResults = await Promise.allSettled(
+      Array.from(senderNames.entries()).map(([jid, name]) =>
+        upsertContact(tenantId, jid, name, false).then((c) => [jid, c?.id ?? null] as [string, string | null])
+      ),
+    );
+    const contactMap = new Map<string, string | null>();
+    for (const r of contactResults) {
+      if (r.status === "fulfilled") contactMap.set(r.value[0], r.value[1]);
     }
 
-    // Índice para rastrear qual foi a última mensagem processada (mais recente)
-    let lastMsgBody: string | null = null;
-    let lastMsgTimestamp = 0;
+    // ── Construir rows e índice de mídia ──────────────────────────────────
+    type MsgRow = {
+      tenant_id: string; session_id: string; chat_id: string | null;
+      contact_id: string | null; message_id: string; from_me: boolean;
+      type: string; body: string | null; caption: string | null;
+      is_forwarded: boolean; timestamp: string; raw_payload: EvolutionMessage;
+    };
+
+    const msgRows: MsgRow[] = [];
+    const mediaIndex = new Map<string, { key: EvolutionMessage["key"]; message: Record<string, unknown>; mimeType: string }>();
 
     for (const msg of records) {
-      const { key, messageType, messageTimestamp, pushName, message } = msg;
-      const participantJid = key.participant ?? null;
-      const senderJid = isGroup && participantJid ? participantJid : remoteJid;
-
-      const senderContact = await upsertContact(tenantId, senderJid, pushName ?? null, false);
-
+      const { key, messageType, messageTimestamp, message } = msg;
+      const senderJid = isGroup && key.participant ? key.participant : remoteJid;
       const body = extractTextBody(message);
       const type = normalizeMessageType(messageType ?? deriveMessageType(message));
       const caption = extractCaption(message);
 
-      // Rastrear última mensagem para preview do chat
       if (messageTimestamp > lastMsgTimestamp) {
         lastMsgTimestamp = messageTimestamp;
         lastMsgBody = body ?? caption ?? (["image","audio","video","document","sticker"].includes(type) ? `[${type}]` : null);
       }
 
-      const { data: savedMsg } = await supabase.from("messages").upsert({
+      msgRows.push({
         tenant_id: tenantId,
         session_id: sessionId,
         chat_id: chat?.id ?? null,
-        contact_id: senderContact?.id ?? null,
+        contact_id: contactMap.get(senderJid) ?? null,
         message_id: key.id,
         from_me: key.fromMe,
         type,
         body,
-        caption: extractCaption(message),
+        caption,
         is_forwarded: false,
         timestamp: new Date(messageTimestamp * 1000).toISOString(),
         raw_payload: msg,
-      }, { onConflict: "session_id,message_id" }).select("id").single();
+      });
 
-      // Disparar download de mídia para mensagens de imagem/áudio/vídeo/documento
-      if (savedMsg?.id && ["image", "audio", "video", "document"].includes(type)) {
+      if (["image", "audio", "video", "document"].includes(type)) {
         const mimeType = extractMimeType(message, type);
-        if (mimeType) {
-          // Criar registro em media_files se não existir
-          const { data: existing } = await supabase
-            .from("media_files")
-            .select("id")
-            .eq("message_id", savedMsg.id)
-            .single();
+        if (mimeType) mediaIndex.set(key.id, { key, message: message ?? {}, mimeType });
+      }
+    }
 
-          if (!existing) {
-            await supabase.from("media_files").insert({
-              tenant_id: tenantId,
-              message_id: savedMsg.id,
-              mime_type: mimeType,
-              download_status: "pending",
-              download_attempts: 0,
-            });
-          }
+    // ── Bulk upsert de mensagens ──────────────────────────────────────────
+    const { data: savedMessages } = await supabase
+      .from("messages")
+      .upsert(msgRows, { onConflict: "session_id,message_id" })
+      .select("id, message_id");
 
-          // Disparar media-downloader fire-and-forget
-          const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-          const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-          fetch(`${supabaseUrl}/functions/v1/media-downloader`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${serviceKey}`,
-            },
-            body: JSON.stringify({
-              messageId: savedMsg.id,
-              tenantId,
-              sessionId,
-              downloadUrl: "",
-              mimeType,
-              evolutionMessageId: key.id,
-              instanceName,
-              evolutionKey: key,
-              evolutionMessage: message,
-            }),
-          }).catch(() => {});
-        }
+    // ── Garantir media_files e acionar downloads ──────────────────────────
+    if (savedMessages?.length && mediaIndex.size > 0) {
+      const mediaDbIds = savedMessages
+        .filter((s) => mediaIndex.has(s.message_id))
+        .map((s) => s.id);
+
+      const { data: existingMedia } = await supabase
+        .from("media_files")
+        .select("message_id, download_status")
+        .in("message_id", mediaDbIds);
+
+      const existingMap = new Map((existingMedia ?? []).map((m) => [m.message_id, m.download_status]));
+
+      const newMediaRows = savedMessages
+        .filter((s) => mediaIndex.has(s.message_id) && !existingMap.has(s.id))
+        .map((s) => ({
+          tenant_id: tenantId,
+          message_id: s.id,
+          mime_type: mediaIndex.get(s.message_id)!.mimeType,
+          download_status: "pending",
+          download_attempts: 0,
+        }));
+
+      if (newMediaRows.length > 0) {
+        await supabase.from("media_files").insert(newMediaRows);
       }
 
-      imported++;
+      // Disparar downloads para mensagens sem download concluído
+      for (const saved of savedMessages) {
+        const evData = mediaIndex.get(saved.message_id);
+        if (!evData) continue;
+        if (existingMap.get(saved.id) === "done") continue;
+        fetch(`${supabaseUrl}/functions/v1/media-downloader`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+          body: JSON.stringify({
+            messageId: saved.id,
+            tenantId,
+            sessionId,
+            downloadUrl: "",
+            mimeType: evData.mimeType,
+            evolutionMessageId: evData.key.id,
+            instanceName,
+            evolutionKey: evData.key,
+            evolutionMessage: evData.message,
+          }),
+        }).catch(() => {});
+      }
     }
 
-    // Atualizar preview da última mensagem do chat
-    if (chat?.id && lastMsgBody) {
-      await supabase.from("chats").update({ last_message_body: lastMsgBody }).eq("id", chat.id);
-    }
-
+    imported += records.length;
     if (page >= pages) break;
     page++;
+  }
+
+  if (chat?.id && lastMsgBody) {
+    await supabase.from("chats").update({ last_message_body: lastMsgBody }).eq("id", chat.id);
   }
 
   return imported;
