@@ -90,7 +90,10 @@ wa-intelligence/
 │       │       ├── search/
 │       │       ├── analytics/
 │       │       ├── operators/
-│       │       ├── history-sync/
+│       │       ├── history-sync/         ← dispara sync + GET status via events_log
+│       │       │   └── status/
+│       │       ├── chats/
+│       │       │   └── [id]/sync-name/   ← resolve JID → nome real via Evolution API
 │       │       ├── integrations/
 │       │       └── register/
 │       └── components/
@@ -104,7 +107,7 @@ wa-intelligence/
 │   └── types/                    ← tipos compartilhados
 │
 ├── supabase/
-│   ├── migrations/               ← SQL versionado (0001–0008)
+│   ├── migrations/               ← SQL versionado (0001–0010)
 │   └── functions/
 │       ├── whatsapp-webhook/     ← recebe eventos do Evolution (JWT off)
 │       ├── media-downloader/     ← baixa mídias antes de expirar (JWT off)
@@ -137,6 +140,15 @@ wa-intelligence/
    `ignoreDuplicates: true` + update sem tocar no `name` do grupo.
 9. **Edge Functions `whatsapp-webhook`, `media-downloader`, `session-health-check`
    devem ter `verify_jwt: false`** — são chamadas pelo Evolution API / cron, sem JWT.
+10. **Migration antes do deploy** — nunca deployar código que usa uma coluna nova sem
+    antes aplicar a migration no banco de produção. Uma migration não aplicada causa
+    falha silenciosa: o upsert do Supabase retorna `{ data: null, error }` e se o
+    código não checar `error`, a mensagem é descartada sem log. Sempre destruturar
+    `{ data, error }` e logar o error.
+11. **`history-sync` tem limite de 150s** — o status HTTP 546 do Supabase significa
+    timeout de Edge Function. Processar chats sequencialmente com await dentro de loop
+    causa timeout para volumes > ~100 chats. Usar lotes paralelos (`Promise.allSettled`
+    em batches de 5) e bulk upsert por página, não um DB call por mensagem.
 
 ---
 
@@ -189,8 +201,11 @@ REDIS_URL=
 - Multi-sessão: criar, conectar (QR code), desconectar, excluir sessões WhatsApp
 - Captura de mensagens em tempo real via webhook Evolution → Supabase
 - Download automático de mídia (imagem, áudio, vídeo, documento)
-- Sincronização de histórico via `history-sync` Edge Function
-- Chat list com filtro Todos / Grupos / Contatos
+- Sincronização de histórico via `history-sync` Edge Function (processamento paralelo)
+- Feedback em tempo real do sync: spinner com contagem + resultado final via polling de `events_log`
+- Chat list com filtro Todos / Grupos / Contatos + filtro por sessão (número)
+- Reações: agrupadas como badges emoji na bolha da mensagem-alvo (coluna `reaction_to`)
+- Resolução de nomes: botão por conversa + health-check periódico para JIDs não resolvidos
 - Busca full-text de mensagens
 - Sistema de alertas por palavra-chave
 - Analytics básico
@@ -201,6 +216,31 @@ REDIS_URL=
 ### Pendente / próximos passos
 - Notificações em tempo real de alertas disparados (badge + toast no dashboard)
 - Envio de mensagens pelo dashboard (texto, mídia, quote)
-- Transcrição de áudio via Whisper (requer `OPENAI_API_KEY` no Vercel)
-- Busca semântica com embeddings (requer `OPENAI_API_KEY` no Vercel)
+- Transcrição de áudio via Whisper (requer `OPENAI_API_KEY` nos Supabase Secrets)
+- Busca semântica com embeddings (requer `OPENAI_API_KEY` nos Supabase Secrets)
 - Página de histórico de `alert_events` no dashboard
+
+---
+
+## Debugging em produção
+
+### Edge Functions — códigos de status relevantes
+| Status | Significado |
+|--------|-------------|
+| 401 | JWT inválido — verificar `verify_jwt: false` no `config.toml` e flag `--no-verify-jwt` no CI |
+| 546 | **Timeout** — Edge Function excedeu 150s. Causa comum: loop sequencial com await em muitos itens |
+| 500 | Erro interno. Ver aba Logs no Dashboard ou `events_log` |
+
+### Como investigar via events_log
+```bash
+# Últimos erros (usar via REST com service role key):
+GET /rest/v1/events_log?event_type=eq.error&order=created_at.desc&limit=20
+
+# Verificar se sync rodou:
+GET /rest/v1/events_log?payload->>type=eq.history_sync_completed&order=created_at.desc&limit=5
+```
+
+### Armadilha: falha silenciosa em upsert
+O Supabase JS client retorna `{ data: null, error }` quando um upsert falha (ex: coluna inexistente).
+Se o código só destructura `{ data }` e ignora `error`, a mensagem é descartada sem nenhum log.
+**Sempre** checar e logar `error` em operações críticas de DB.
