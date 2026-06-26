@@ -227,21 +227,36 @@ REDIS_URL=
 - Busca full-text de mensagens (`search_vector` + FTS websearch em português)
 - Busca semântica via embedding (`/api/search?mode=semantic`) — requer `OPENAI_API_KEY`
 - Envio de mensagens pelo dashboard: texto, mídia (imagem/vídeo/áudio/documento), quote (`MessageComposer`)
+  - Optimistic update: mensagem aparece imediatamente; substituída pelo dado real quando webhook chega
 - Transcrição de áudio via Whisper (`/api/messages/[id]/transcribe`) — requer `OPENAI_API_KEY`
 - Sistema de alertas por palavra-chave + notificações em tempo real (badge no sidebar + toast `sonner`)
 - Histórico paginado de `alert_events` com marcação automática de vistos (`/dashboard/admin/alerts/history`)
 - Analytics básico
-- Gestão de operadores (admin / operator)
+- Gestão de operadores: convidar, alterar role (admin/operator), ativar/desativar, excluir
+- Configurações de perfil: editar nome de exibição + trocar senha (com verificação da senha atual)
+- Card de status de funcionalidades de IA na página de configurações
 - Integrações (webhook delivery com log em `events_log`)
 - Realtime: atualizações de status de sessão e novas mensagens via Supabase Realtime
+- Admin: `POST /api/admin/retry-media` — re-dispara downloads de mídia com falha
 - **Auditoria completa Jun 2026** — 4 rodadas, 20+ fixes, codebase limpo
+
+### Armadilha conhecida: porta da Evolution API
+A `EVOLUTION_API_URL` deve usar a porta **32769** (não 32768).
+Deve estar correta em **dois lugares**:
+1. Vercel → Settings → Environment Variables
+2. Supabase → Edge Functions → Secrets
+
+Se imagens/áudios não carregarem e `media-downloader` falhar com timeout,
+verificar essa variável em ambos os lugares. Usar `POST /api/admin/retry-media`
+para re-disparar downloads após corrigir.
 
 ### Pendente / próximos passos
 - Configurar `OPENAI_API_KEY` nos Supabase Secrets e em `.env.local` para ativar:
   - Geração de embeddings (`generate-embeddings` Edge Function)
   - Transcrição de áudio via Whisper (`/api/messages/[id]/transcribe`)
   - Busca semântica (`/api/search?mode=semantic`)
-- Página de configurações avançadas (perfil do operador, notificações, webhook secret visível)
+- Webhook secret visível na página de Integrações (copiar token sem acessar o banco)
+- Adicionar segundo número corporativo e validar multi-sessão em produção
 
 ---
 
