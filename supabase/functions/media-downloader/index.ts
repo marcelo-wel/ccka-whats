@@ -65,10 +65,11 @@ Deno.serve(async (req: Request) => {
   }
 
   // Incrementar contador de tentativas imediatamente
-  await supabase
+  const { error: attemptsErr } = await supabase
     .from("media_files")
     .update({ download_attempts: attempts + 1 })
     .eq("id", mediaFile.id);
+  if (attemptsErr) console.error(`download_attempts update failed: ${attemptsErr.message}`);
 
   try {
     let fileBuffer: ArrayBuffer;
@@ -147,7 +148,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Atualizar registro com sucesso
-    await supabase
+    const { error: doneErr } = await supabase
       .from("media_files")
       .update({
         storage_path: storagePath,
@@ -156,6 +157,9 @@ Deno.serve(async (req: Request) => {
         download_status: "done",
       })
       .eq("id", mediaFile.id);
+    if (doneErr) {
+      await logEvent(tenantId, sessionId, "error", { messageId, storagePath }, `media_files done update: ${doneErr.message}`);
+    }
 
     await logEvent(tenantId, sessionId, "media_downloaded", { messageId, storagePath });
 
@@ -163,10 +167,11 @@ Deno.serve(async (req: Request) => {
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
 
-    await supabase
+    const { error: statusErr } = await supabase
       .from("media_files")
       .update({ download_status: attempts + 1 >= MAX_ATTEMPTS ? "failed" : "pending" })
       .eq("id", mediaFile.id);
+    if (statusErr) console.error(`media_files status update failed: ${statusErr.message}`);
 
     await logEvent(tenantId, sessionId, "error", { messageId, attempt: attempts + 1 }, errorMsg);
 

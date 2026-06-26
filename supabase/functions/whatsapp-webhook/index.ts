@@ -68,14 +68,15 @@ Deno.serve(async (req: Request) => {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { data: session } = await supabase
+  const { data: session, error: sessionError } = await supabase
     .from("wa_sessions")
     .select("id, tenant_id, webhook_secret")
     .eq("evolution_instance_name", body.instance)
     .single<SessionRow>();
 
   if (!session) {
-    await logEvent(null, null, "error", { instance: body.instance }, `Session not found for instance: ${body.instance}`);
+    const msg = sessionError ? `DB error: ${sessionError.message}` : `Session not found for instance: ${body.instance}`;
+    await logEvent(null, null, "error", { instance: body.instance }, msg);
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -338,22 +339,24 @@ async function handleMessagesUpdate(
         DELIVERY_ACK: "delivered", READ: "read", PLAYED: "played",
       };
       const deliveryStatus = statusMap[update.status as string] ?? String(update.status).toLowerCase();
-      await supabase
+      const { error: statusErr } = await supabase
         .from("messages")
         .update({ delivery_status: deliveryStatus } as Record<string, unknown>)
         .eq("session_id", sessionId)
         .eq("message_id", messageId);
+      if (statusErr) console.error(`delivery_status update failed: ${statusErr.message}`);
     }
 
     // Deleção via protocolMessage REVOKE
     const proto = (update.message as Record<string, unknown>)?.protocolMessage as Record<string, unknown> | undefined;
     if (proto?.type === "REVOKE") {
       const targetId = (proto.key as Record<string, unknown>)?.id as string ?? messageId;
-      await supabase
+      const { error: revokeErr } = await supabase
         .from("messages")
         .update({ deleted_at: new Date().toISOString(), body: null } as Record<string, unknown>)
         .eq("session_id", sessionId)
         .eq("message_id", targetId);
+      if (revokeErr) console.error(`messages revoke failed: ${revokeErr.message}`);
     }
 
     // Edição de mensagem
@@ -361,11 +364,12 @@ async function handleMessagesUpdate(
     if (edited) {
       const newBody = extractTextBody(edited);
       if (newBody) {
-        await supabase
+        const { error: editErr } = await supabase
           .from("messages")
           .update({ body: newBody, edited_at: new Date().toISOString() } as Record<string, unknown>)
           .eq("session_id", sessionId)
           .eq("message_id", messageId);
+        if (editErr) console.error(`messages edit failed: ${editErr.message}`);
       }
     }
   }
@@ -381,11 +385,12 @@ async function handleMessagesDelete(
   const key = data.key as Record<string, unknown> | undefined;
   if (!key?.id) return;
 
-  await supabase
+  const { error: deleteErr } = await supabase
     .from("messages")
     .update({ deleted_at: new Date().toISOString(), body: null } as Record<string, unknown>)
     .eq("session_id", sessionId)
     .eq("message_id", key.id as string);
+  if (deleteErr) console.error(`messages.delete update failed: ${deleteErr.message}`);
 }
 
 // ─── connection.update ────────────────────────────────────────────────────────
@@ -406,10 +411,14 @@ async function handleConnectionUpdate(
 
   const status = statusMap[state] ?? "disconnected";
 
-  await supabase
+  const { error: statusErr } = await supabase
     .from("wa_sessions")
     .update({ status, last_seen_at: new Date().toISOString() })
     .eq("id", sessionId);
+  if (statusErr) {
+    await logEvent(tenantId, sessionId, "error", { state, status }, `wa_sessions status update: ${statusErr.message}`);
+    return;
+  }
 
   await logEvent(tenantId, sessionId, "session_status_changed", { state, status });
 }
@@ -424,10 +433,14 @@ async function handleQrcodeUpdated(
   const qrCode = (data.qrcode as Record<string, unknown>)?.base64 as string | undefined;
   if (!qrCode) return;
 
-  await supabase
+  const { error: qrErr } = await supabase
     .from("wa_sessions")
     .update({ qr_code: qrCode, status: "connecting" })
     .eq("id", sessionId);
+  if (qrErr) {
+    await logEvent(tenantId, sessionId, "error", null, `wa_sessions qr update: ${qrErr.message}`);
+    return;
+  }
 
   await logEvent(tenantId, sessionId, "qrcode_updated", null);
 }

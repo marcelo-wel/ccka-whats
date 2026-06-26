@@ -98,18 +98,20 @@ async function checkSession(session: {
   if (newStatus === currentStatus) {
     // Apenas atualizar last_seen_at se conectado
     if (newStatus === "connected") {
-      await supabase
+      const { error: seenErr } = await supabase
         .from("wa_sessions")
         .update({ last_seen_at: new Date().toISOString() })
         .eq("id", sessionId);
+      if (seenErr) console.error(`last_seen_at update failed for ${sessionId}: ${seenErr.message}`);
     }
     return;
   }
 
-  await supabase
+  const { error: statusErr } = await supabase
     .from("wa_sessions")
     .update({ status: newStatus, last_seen_at: new Date().toISOString() })
     .eq("id", sessionId);
+  if (statusErr) console.error(`session status update failed for ${sessionId}: ${statusErr.message}`);
 
   await supabase.from("events_log").insert({
     tenant_id: tenantId,
@@ -168,8 +170,9 @@ async function syncGroupNames(session: {
       unresolved.map(async (chat) => {
         const subject = subjectMap.get(chat.jid);
         if (subject) {
-          await supabase.from("chats").update({ name: subject }).eq("id", chat.id);
-          resolved++;
+          const { error: nameErr } = await supabase.from("chats").update({ name: subject }).eq("id", chat.id);
+          if (nameErr) console.error(`group name update failed for ${chat.jid}: ${nameErr.message}`);
+          else resolved++;
         }
       }),
     );
@@ -301,8 +304,9 @@ async function syncContactNames(session: {
       unresolved.map(async (chat) => {
         const name = contactMap.get(chat.jid);
         if (name) {
-          await supabase.from("chats").update({ name }).eq("id", chat.id);
-          resolved++;
+          const { error: nameErr } = await supabase.from("chats").update({ name }).eq("id", chat.id);
+          if (nameErr) console.error(`contact name update failed for ${chat.jid}: ${nameErr.message}`);
+          else resolved++;
         }
       }),
     );

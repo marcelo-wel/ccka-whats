@@ -121,7 +121,7 @@ async function syncChat(
   // ── Upsert chat uma vez, fora do loop de páginas ──────────────────────────
   const chatContact = await upsertContact(tenantId, remoteJid, null, isGroup);
 
-  await supabase.from("chats").upsert(
+  const { error: chatUpsertErr } = await supabase.from("chats").upsert(
     {
       tenant_id: tenantId,
       session_id: sessionId,
@@ -131,8 +131,9 @@ async function syncChat(
     },
     { onConflict: "session_id,jid", ignoreDuplicates: true },
   );
+  if (chatUpsertErr) console.error(`chat upsert failed for ${remoteJid}: ${chatUpsertErr.message}`);
 
-  const { data: chat } = await supabase
+  const { data: chat, error: chatUpdateErr } = await supabase
     .from("chats")
     .update({
       contact_id: chatContact?.id ?? null,
@@ -142,6 +143,7 @@ async function syncChat(
     .eq("jid", remoteJid)
     .select("id, name")
     .single();
+  if (chatUpdateErr) console.error(`chat update failed for ${remoteJid}: ${chatUpdateErr.message}`);
 
   if (isGroup && chat?.id && (!chat.name || chat.name === remoteJid)) {
     await fetchGroupSubjectAndUpdate(instanceName, remoteJid, chat.id);
@@ -265,7 +267,10 @@ async function syncChat(
         }));
 
       if (newMediaRows.length > 0) {
-        await supabase.from("media_files").insert(newMediaRows);
+        const { error: mediaInsertErr } = await supabase.from("media_files").insert(newMediaRows);
+        if (mediaInsertErr) {
+          await logEvent(tenantId, sessionId, "error", { remoteJid, count: newMediaRows.length }, `media_files insert: ${mediaInsertErr.message}`);
+        }
       }
 
       // Disparar downloads para mensagens sem download concluído
@@ -297,7 +302,8 @@ async function syncChat(
   }
 
   if (chat?.id && lastMsgBody) {
-    await supabase.from("chats").update({ last_message_body: lastMsgBody }).eq("id", chat.id);
+    const { error: lastMsgErr } = await supabase.from("chats").update({ last_message_body: lastMsgBody }).eq("id", chat.id);
+    if (lastMsgErr) console.error(`last_message_body update failed for ${remoteJid}: ${lastMsgErr.message}`);
   }
 
   return imported;
@@ -335,7 +341,7 @@ async function upsertContact(
   pushName: string | null,
   isGroup: boolean,
 ): Promise<{ id: string } | null> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("contacts")
     .upsert({
       tenant_id: tenantId,
@@ -345,6 +351,7 @@ async function upsertContact(
     }, { onConflict: "tenant_id,jid" })
     .select("id")
     .single();
+  if (error) console.error(`upsertContact failed for ${jid}: ${error.message}`);
   return data;
 }
 
