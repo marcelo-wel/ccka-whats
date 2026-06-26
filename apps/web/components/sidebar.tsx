@@ -16,6 +16,7 @@ import {
   Settings,
   LogOut,
 } from "lucide-react";
+import AlertBadge from "@/components/alert-badge";
 
 interface SidebarProps {
   operatorName: string;
@@ -27,7 +28,7 @@ const navItems = [
   { label: "Analytics",     href: "/dashboard/analytics",            roles: ["admin", "operator"], icon: BarChart2,     section: "main" },
   { label: "Sessões",       href: "/dashboard/admin/sessions",       roles: ["admin"],             icon: Smartphone,   section: "admin", showStatus: true },
   { label: "Operadores",    href: "/dashboard/admin/operators",      roles: ["admin"],             icon: Users,        section: "admin" },
-  { label: "Alertas",       href: "/dashboard/admin/alerts",         roles: ["admin"],             icon: Bell,         section: "admin" },
+  { label: "Alertas",       href: "/dashboard/admin/alerts",         roles: ["admin"],             icon: Bell,         section: "admin", showAlertBadge: true },
   { label: "Integrações",   href: "/dashboard/admin/integrations",   roles: ["admin"],             icon: Plug,         section: "admin" },
   { label: "Histórico",     href: "/dashboard/admin/history",        roles: ["admin"],             icon: History,      section: "admin" },
   { label: "Configurações", href: "/dashboard/settings",             roles: ["admin"],             icon: Settings,     section: "admin" },
@@ -152,6 +153,7 @@ export default function Sidebar({ operatorName, role }: SidebarProps) {
                 />
                 <span className="flex-1">{item.label}</span>
                 {item.showStatus && role === "admin" && <SessionStatusDot />}
+                {item.showAlertBadge && role === "admin" && <AlertBadge />}
               </Link>
             </div>
           );

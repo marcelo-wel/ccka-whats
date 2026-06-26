@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import Sidebar from "@/components/sidebar";
+import AlertNotifier from "@/components/alert-notifier";
+import { Toaster } from "sonner";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -22,6 +24,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <div className="flex h-screen bg-gray-950 text-white overflow-hidden">
       <Sidebar operatorName={operator.name ?? user.email ?? ""} role={operator.role} />
       <main className="flex-1 overflow-hidden">{children}</main>
+      <Toaster position="top-right" theme="dark" richColors />
+      <AlertNotifier />
     </div>
   );
 }

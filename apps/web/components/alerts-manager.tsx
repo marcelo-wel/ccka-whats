@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 interface Alert {
   id: string;
@@ -242,7 +243,15 @@ export default function AlertsManager({
       {/* Recent events */}
       {recentEvents.length > 0 && (
         <div className="space-y-2">
-          <h2 className="text-sm font-semibold text-white">Eventos recentes</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-white">Eventos recentes</h2>
+            <Link
+              href="/dashboard/admin/alerts/history"
+              className="text-xs text-green-400 hover:text-green-300 transition-colors"
+            >
+              Ver histórico completo →
+            </Link>
+          </div>
           {recentEvents.map((event) => (
             <div
               key={event.id}
