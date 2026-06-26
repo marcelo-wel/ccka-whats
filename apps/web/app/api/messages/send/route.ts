@@ -7,8 +7,10 @@ export async function POST(req: NextRequest) {
     return await handleSend(req);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[messages/send] unhandled error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const cause = (err instanceof Error && err.cause) ? String(err.cause) : undefined;
+    const detail = cause ? `${msg} — ${cause}` : msg;
+    console.error("[messages/send] unhandled error:", detail);
+    return NextResponse.json({ error: detail }, { status: 500 });
   }
 }
 
