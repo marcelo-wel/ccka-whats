@@ -3,6 +3,16 @@ import { createClient } from "@/lib/supabase/server";
 import { env } from "@/lib/env";
 
 export async function POST(req: NextRequest) {
+  try {
+    return await handleSend(req);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[messages/send] unhandled error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+async function handleSend(req: NextRequest): Promise<NextResponse> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -84,3 +94,4 @@ export async function POST(req: NextRequest) {
   }
   return NextResponse.json({ ok: true, result });
 }
+
