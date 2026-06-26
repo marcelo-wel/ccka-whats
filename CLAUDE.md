@@ -224,22 +224,24 @@ REDIS_URL=
 - Reações: agrupadas como badges emoji na bolha da mensagem-alvo (coluna `reaction_to`)
 - Resolução de nomes: botão por conversa + health-check periódico (a cada 5 min via pg_cron)
 - Merge automático de chats duplicados `@lid` ↔ `@s.whatsapp.net` (session-health-check)
-- Busca full-text de mensagens
-- Sistema de alertas por palavra-chave
+- Busca full-text de mensagens (`search_vector` + FTS websearch em português)
+- Busca semântica via embedding (`/api/search?mode=semantic`) — requer `OPENAI_API_KEY`
+- Envio de mensagens pelo dashboard: texto, mídia (imagem/vídeo/áudio/documento), quote (`MessageComposer`)
+- Transcrição de áudio via Whisper (`/api/messages/[id]/transcribe`) — requer `OPENAI_API_KEY`
+- Sistema de alertas por palavra-chave + notificações em tempo real (badge no sidebar + toast `sonner`)
+- Histórico paginado de `alert_events` com marcação automática de vistos (`/dashboard/admin/alerts/history`)
 - Analytics básico
 - Gestão de operadores (admin / operator)
 - Integrações (webhook delivery com log em `events_log`)
 - Realtime: atualizações de status de sessão e novas mensagens via Supabase Realtime
-- **Auditoria completa Jun 2026** — 3 rodadas, 16+ bugs corrigidos nas Edge Functions,
-  `MessageType` completo, `EventType` completo, `DeliveryStatus` exportado,
-  `vercel.json` configurado para monorepo, padrões arquiteturais verificados e documentados
+- **Auditoria completa Jun 2026** — 4 rodadas, 20+ fixes, codebase limpo
 
 ### Pendente / próximos passos
-- Notificações em tempo real de alertas disparados (badge + toast no dashboard)
-- Envio de mensagens pelo dashboard (texto, mídia, quote)
-- Transcrição de áudio via Whisper (requer `OPENAI_API_KEY` nos Supabase Secrets)
-- Busca semântica com embeddings (requer `OPENAI_API_KEY` nos Supabase Secrets)
-- Página de histórico de `alert_events` no dashboard
+- Configurar `OPENAI_API_KEY` nos Supabase Secrets e em `.env.local` para ativar:
+  - Geração de embeddings (`generate-embeddings` Edge Function)
+  - Transcrição de áudio via Whisper (`/api/messages/[id]/transcribe`)
+  - Busca semântica (`/api/search?mode=semantic`)
+- Página de configurações avançadas (perfil do operador, notificações, webhook secret visível)
 
 ---
 
