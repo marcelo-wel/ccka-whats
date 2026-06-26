@@ -73,10 +73,14 @@ export async function POST(req: NextRequest) {
   }
 
   if (!evoRes.ok) {
-    const errText = await evoRes.text();
+    const errText = await evoRes.text().catch(() => `HTTP ${evoRes.status}`);
     return NextResponse.json({ error: `Evolution error: ${errText}` }, { status: 502 });
   }
 
-  const result = await evoRes.json();
+  let result: unknown = null;
+  const contentType = evoRes.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    result = await evoRes.json().catch(() => null);
+  }
   return NextResponse.json({ ok: true, result });
 }

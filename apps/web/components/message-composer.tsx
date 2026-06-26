@@ -31,8 +31,15 @@ export default function MessageComposer({ chatId, onSent, quotedMessage, onClear
         body: JSON.stringify({ chatId, ...payload }),
       });
       if (!res.ok) {
-        const data = await res.json() as { error?: string };
-        throw new Error(data.error ?? `Erro ${res.status}`);
+        let errMsg = `Erro ${res.status}`;
+        try {
+          const data = await res.json() as { error?: string };
+          if (data.error) errMsg = data.error;
+        } catch {
+          const txt = await res.text().catch(() => "");
+          if (txt) errMsg = txt;
+        }
+        throw new Error(errMsg);
       }
       onSent?.();
     } catch (err) {
