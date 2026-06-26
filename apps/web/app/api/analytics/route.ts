@@ -1,34 +1,21 @@
-import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 
 export async function GET() {
-  // Get current user via SSR client
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll() { return cookieStore.getAll() }, setAll() {} } }
-  )
-
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Use service role for data queries
-  const adminClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const adminClient = createAdminClient()
 
-  // Get tenant_id from operators
   const { data: operator } = await adminClient
     .from('operators')
-    .select('tenant_id')
+    .select('tenant_id, role')
     .eq('id', user.id)
     .single()
 
   if (!operator) return NextResponse.json({ error: 'Operator not found' }, { status: 404 })
+  if (operator.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const tenantId = operator.tenant_id
   const now = new Date()

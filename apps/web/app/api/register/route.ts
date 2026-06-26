@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { env } from '@/lib/env'
 
 function slugify(text: string): string {
   return text
@@ -29,8 +30,8 @@ export async function POST(request: Request) {
   }
 
   const adminClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    env.NEXT_PUBLIC_SUPABASE_URL,
+    env.SUPABASE_SERVICE_ROLE_KEY
   )
 
   // Create auth user

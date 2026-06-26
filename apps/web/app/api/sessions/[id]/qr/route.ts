@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { env } from "@/lib/env";
 
 export async function GET(
@@ -43,7 +43,6 @@ export async function GET(
 
   if (qrCode) {
     // Salvar no banco para o Realtime propagar ao card
-    const { createAdminClient } = await import("@/lib/supabase/server");
     const admin = createAdminClient();
     await admin
       .from("wa_sessions")

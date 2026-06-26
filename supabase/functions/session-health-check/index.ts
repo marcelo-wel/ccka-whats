@@ -240,7 +240,17 @@ async function mergeDuplicateChats(session: {
     }
 
     // Remover o chat @lid
-    await supabase.from("chats").delete().eq("id", lid.id);
+    const { error: deleteErr } = await supabase.from("chats").delete().eq("id", lid.id);
+    if (deleteErr) {
+      await supabase.from("events_log").insert({
+        tenant_id: tenantId,
+        session_id: sessionId,
+        event_type: "error",
+        payload: { from_jid: lid.jid, to_jid: phone.jid },
+        error: `chats.delete failed: ${deleteErr.message}`,
+      });
+      continue;
+    }
 
     merged++;
     await supabase.from("events_log").insert({

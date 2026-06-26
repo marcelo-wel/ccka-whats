@@ -35,7 +35,7 @@ export async function POST(
   const newSecret =
     crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
 
-  const webhookUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/whatsapp-webhook`;
+  const webhookUrl = `${env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/whatsapp-webhook`;
 
   const evoRes = await fetch(
     `${env.EVOLUTION_API_URL}/webhook/set/${session.evolution_instance_name}`,
