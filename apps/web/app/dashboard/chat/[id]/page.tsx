@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import ChatView from "@/components/chat-view";
 import ChatList from "@/components/chat-list";
 
@@ -55,13 +55,16 @@ export default async function ChatPage({ params }: Props) {
   // Ordenar cronologicamente
   const sortedRaw = (rawMessages ?? []).reverse();
 
-  // Gerar URLs assinadas para mídias (bucket privado)
+  // Gerar URLs assinadas para mídias (bucket privado).
+  // Assinar com admin client: o usuário já passou pela RLS de `messages` ao
+  // buscar acima; o client autenticado não tem policy de storage p/ assinar.
+  const storage = createAdminClient();
   const messages = await Promise.all(
     sortedRaw.map(async (msg) => {
       const media = Array.isArray(msg.media_files) ? msg.media_files[0] ?? null : msg.media_files;
       const contacts = Array.isArray(msg.contacts) ? msg.contacts[0] ?? null : msg.contacts;
       if (media?.storage_path && media.download_status === "done") {
-        const { data: signed } = await supabase.storage
+        const { data: signed } = await storage.storage
           .from("media")
           .createSignedUrl(media.storage_path, 3600);
         return { ...msg, media_files: media ? [media] : null, contacts, signedUrl: signed?.signedUrl ?? null };

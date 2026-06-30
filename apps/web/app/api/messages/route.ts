@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 
 const PAGE_SIZE = 50;
 
@@ -37,13 +37,16 @@ export async function GET(req: NextRequest) {
   // Inverter para ordem cronológica
   const sorted = (rawMessages ?? []).reverse();
 
-  // Gerar signed URLs para mídias
+  // Gerar signed URLs para mídias (bucket privado).
+  // Assinar com admin client: o usuário já passou pela RLS de `messages`;
+  // o client autenticado não tem policy de storage p/ assinar.
+  const storage = createAdminClient();
   const messages = await Promise.all(
     sorted.map(async (msg) => {
       const media = Array.isArray(msg.media_files) ? msg.media_files[0] ?? null : msg.media_files;
       const contacts = Array.isArray(msg.contacts) ? msg.contacts[0] ?? null : msg.contacts;
       if (media?.storage_path && media.download_status === "done") {
-        const { data: signed } = await supabase.storage
+        const { data: signed } = await storage.storage
           .from("media")
           .createSignedUrl(media.storage_path, 3600);
         return { ...msg, media_files: media ? [media] : null, contacts, signedUrl: signed?.signedUrl ?? null };
