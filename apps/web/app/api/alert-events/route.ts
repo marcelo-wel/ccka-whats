@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   const { data, error, count } = await admin
     .from("alert_events")
     .select(
-      "id, matched_keyword, seen, created_at, alert_id, alerts(name), messages(body, type, timestamp)",
+      "id, matched_keyword, seen, created_at, alert_id, alerts(name), messages(id, chat_id, body, type, timestamp)",
       { count: "exact" },
     )
     .eq("tenant_id", operator.tenant_id)

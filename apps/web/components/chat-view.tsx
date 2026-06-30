@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { formatTime } from "@/lib/utils";
 import MessageComposer from "@/components/message-composer";
 import ConversationSummary from "@/components/conversation-summary";
@@ -75,6 +76,9 @@ export default function ChatView({ chat, messages: initial, isGroup, hasMore: in
   const listRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
   const mediaRetryRef = useRef(0);
+  const searchParams = useSearchParams();
+  const targetMsg = searchParams.get("msg");
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   useEffect(() => {
     setMessages(initial);
@@ -227,6 +231,17 @@ export default function ChatView({ chat, messages: initial, isGroup, hasMore: in
     return () => { supabase.removeChannel(channel); };
   }, [chat.id, refreshMessages]);
 
+  // Rolar até e destacar a mensagem-alvo (vindo de ?msg=, ex: clique num alerta)
+  useEffect(() => {
+    if (!targetMsg) return;
+    const el = document.getElementById(`m-${targetMsg}`);
+    if (!el) return; // ainda não carregada (mensagem antiga) — abre a conversa normalmente
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightId(targetMsg);
+    const t = setTimeout(() => setHighlightId(null), 3000);
+    return () => clearTimeout(t);
+  }, [targetMsg, messages]);
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-800 shrink-0 flex items-center justify-between gap-3">
@@ -272,6 +287,7 @@ export default function ChatView({ chat, messages: initial, isGroup, hasMore: in
                 key={msg.id}
                 message={msg}
                 isGroup={isGroup}
+                highlighted={msg.id === highlightId}
                 reactions={reactionMap.get(msg.message_id) ?? null}
                 onReply={(m) => setQuotedMessage({
                   id: m.id,
@@ -307,13 +323,16 @@ function DeliveryTicks({ status }: { status: string | null }) {
   return null;
 }
 
-function MessageBubble({ message, isGroup, reactions, onReply }: { message: Message; isGroup: boolean; reactions: Record<string, number> | null; onReply: (m: Message) => void }) {
+function MessageBubble({ message, isGroup, reactions, onReply, highlighted }: { message: Message; isGroup: boolean; reactions: Record<string, number> | null; onReply: (m: Message) => void; highlighted?: boolean }) {
   const { from_me, type, body, caption, timestamp, media_files, signedUrl, contacts, deleted_at, edited_at, delivery_status } = message;
   const media = media_files?.[0] ?? null;
   const senderName = contacts?.push_name ?? contacts?.name ?? null;
 
   return (
-    <div className={`flex items-end gap-1 group ${from_me ? "justify-end" : "justify-start"}`}>
+    <div
+      id={`m-${message.id}`}
+      className={`flex items-end gap-1 group rounded-lg transition-colors ${from_me ? "justify-end" : "justify-start"} ${highlighted ? "ring-2 ring-yellow-400 bg-yellow-400/5" : ""}`}
+    >
       {from_me && (
         <button
           onClick={() => onReply(message)}

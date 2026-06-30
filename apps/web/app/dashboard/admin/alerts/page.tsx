@@ -27,7 +27,7 @@ export default async function AlertsPage() {
       .order("created_at", { ascending: true }),
     supabase
       .from("alert_events")
-      .select("id, matched_keyword, seen, created_at, alert_id, alerts(name), messages(body, type)")
+      .select("id, matched_keyword, seen, created_at, alert_id, alerts(name), messages(id, chat_id, body, type)")
       .order("created_at", { ascending: false })
       .limit(10),
   ]);

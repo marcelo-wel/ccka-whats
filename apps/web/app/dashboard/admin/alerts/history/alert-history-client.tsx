@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 interface AlertEvent {
   id: string;
@@ -9,7 +10,7 @@ interface AlertEvent {
   created_at: string;
   alert_id: string;
   alerts: { name: string } | null;
-  messages: { body: string | null; type: string; timestamp: string | null } | null;
+  messages: { id: string; chat_id: string | null; body: string | null; type: string; timestamp: string | null } | null;
 }
 
 interface Props {
@@ -51,32 +52,42 @@ export default function AlertHistoryClient({ initialEvents, total }: Props) {
 
   return (
     <div className="space-y-2 max-w-2xl">
-      {events.map((event) => (
-        <div
-          key={event.id}
-          className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 space-y-1.5"
-        >
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <span className="text-xs text-gray-400">
-              Alerta:{" "}
-              <span className="text-white font-medium">{event.alerts?.name ?? event.alert_id}</span>
-            </span>
-            <span className="text-xs text-gray-500">
-              {new Date(event.created_at).toLocaleString("pt-BR")}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs bg-yellow-800/50 text-yellow-300 rounded px-2 py-0.5">
-              {event.matched_keyword}
-            </span>
-            {event.messages?.body && (
-              <span className="text-xs text-gray-400 truncate max-w-sm">
-                {event.messages.body}
+      {events.map((event) => {
+        const chatId = event.messages?.chat_id;
+        const msgId = event.messages?.id;
+        const href = chatId ? `/dashboard/chat/${chatId}${msgId ? `?msg=${msgId}` : ""}` : null;
+        const inner = (
+          <>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-xs text-gray-400">
+                Alerta:{" "}
+                <span className="text-white font-medium">{event.alerts?.name ?? event.alert_id}</span>
               </span>
-            )}
-          </div>
-        </div>
-      ))}
+              <span className="text-xs text-gray-500">
+                {new Date(event.created_at).toLocaleString("pt-BR")}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs bg-yellow-800/50 text-yellow-300 rounded px-2 py-0.5">
+                {event.matched_keyword}
+              </span>
+              {event.messages?.body && (
+                <span className="text-xs text-gray-400 truncate max-w-sm">
+                  {event.messages.body}
+                </span>
+              )}
+            </div>
+          </>
+        );
+        const cls = `block bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 space-y-1.5 ${
+          href ? "hover:border-green-700 transition-colors cursor-pointer" : ""
+        }`;
+        return href ? (
+          <Link key={event.id} href={href} className={cls}>{inner}</Link>
+        ) : (
+          <div key={event.id} className={cls}>{inner}</div>
+        );
+      })}
 
       {hasMore && (
         <button

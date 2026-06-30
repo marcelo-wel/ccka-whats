@@ -25,7 +25,7 @@ interface AlertEvent {
   created_at: string;
   alert_id: string;
   alerts: { name: string } | null;
-  messages: { body: string | null; type: string } | null;
+  messages: { id: string; chat_id: string | null; body: string | null; type: string } | null;
 }
 
 interface AlertsManagerProps {
@@ -252,36 +252,42 @@ export default function AlertsManager({
               Ver histórico completo →
             </Link>
           </div>
-          {recentEvents.map((event) => (
-            <div
-              key={event.id}
-              className={`rounded-lg border px-4 py-3 ${
-                event.seen
-                  ? "bg-gray-800 border-gray-700"
-                  : "bg-yellow-900/20 border-yellow-800/50"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <span className="text-xs text-gray-400">
-                  Alerta:{" "}
-                  <span className="text-white">{event.alerts?.name ?? event.alert_id}</span>
-                </span>
-                <span className="text-xs text-gray-500">
-                  {new Date(event.created_at).toLocaleString("pt-BR")}
-                </span>
-              </div>
-              <div className="mt-1 flex items-center gap-2 flex-wrap">
-                <span className="text-xs bg-yellow-800/50 text-yellow-300 rounded px-2 py-0.5">
-                  {event.matched_keyword}
-                </span>
-                {event.messages?.body && (
-                  <span className="text-xs text-gray-400 truncate max-w-xs">
-                    {event.messages.body}
+          {recentEvents.map((event) => {
+            const chatId = event.messages?.chat_id;
+            const msgId = event.messages?.id;
+            const href = chatId ? `/dashboard/chat/${chatId}${msgId ? `?msg=${msgId}` : ""}` : null;
+            const inner = (
+              <>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-xs text-gray-400">
+                    Alerta:{" "}
+                    <span className="text-white">{event.alerts?.name ?? event.alert_id}</span>
                   </span>
-                )}
-              </div>
-            </div>
-          ))}
+                  <span className="text-xs text-gray-500">
+                    {new Date(event.created_at).toLocaleString("pt-BR")}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center gap-2 flex-wrap">
+                  <span className="text-xs bg-yellow-800/50 text-yellow-300 rounded px-2 py-0.5">
+                    {event.matched_keyword}
+                  </span>
+                  {event.messages?.body && (
+                    <span className="text-xs text-gray-400 truncate max-w-xs">
+                      {event.messages.body}
+                    </span>
+                  )}
+                </div>
+              </>
+            );
+            const cls = `block rounded-lg border px-4 py-3 ${
+              event.seen ? "bg-gray-800 border-gray-700" : "bg-yellow-900/20 border-yellow-800/50"
+            } ${href ? "hover:border-green-700 transition-colors cursor-pointer" : ""}`;
+            return href ? (
+              <Link key={event.id} href={href} className={cls}>{inner}</Link>
+            ) : (
+              <div key={event.id} className={cls}>{inner}</div>
+            );
+          })}
         </div>
       )}
     </div>
