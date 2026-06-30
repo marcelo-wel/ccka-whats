@@ -66,7 +66,9 @@ export async function GET(req: NextRequest) {
     const { data: semanticMessages, error: semanticError } = await supabase
       .rpc("search_messages_semantic", {
         query_embedding: JSON.stringify(embedding),
-        match_threshold: 0.5,
+        // 0.3: matches semânticos relevantes (mesmo "soltos") ficam ~0.35-0.50;
+        // 0.5 cortava resultados válidos. Ordenação por similaridade mantém os melhores no topo.
+        match_threshold: 0.3,
         match_count: limit,
       });
 

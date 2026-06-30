@@ -85,6 +85,8 @@ Responda em markdown com estas seções (omita uma seção se não houver inform
 **Sentimento do cliente** — neutro/positivo/negativo + por quê.
 **Próximos passos** — ações recomendadas.
 
+Não envolva a resposta em blocos de código (\`\`\`). Comece direto pela primeira seção.
+
 Conversa:
 ${transcript}`;
 
@@ -108,6 +110,8 @@ ${transcript}`;
     }
     const json = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
     summary = json.choices?.[0]?.message?.content?.trim() ?? "";
+    // Remover cerca de código se o modelo embrulhar em ```markdown ... ```
+    summary = summary.replace(/^```[a-zA-Z]*\n?/, "").replace(/\n?```$/, "").trim();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: `Falha ao gerar resumo: ${msg}` }, { status: 502 });
